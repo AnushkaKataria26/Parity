@@ -1,0 +1,4 @@
+{
+  "source_text": "    def get_disambiguated_name(name: str) -> str:\n        count = symbol_counts.get(name, 0)\n        symbol_counts[name] = count + 1\n        if count == 0:\n            return name\n        return f\"{name}#{count + 1}\"\n",
+  "docstring": null
+}

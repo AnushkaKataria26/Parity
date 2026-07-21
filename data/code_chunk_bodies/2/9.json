@@ -1,0 +1,4 @@
+{
+  "source_text": "def main():\n    parser = argparse.ArgumentParser(prog=\"parity\")\n    subparsers = parser.add_subparsers(dest=\"command\", required=True)\n    \n    init_parser = subparsers.add_parser(\"init\")\n    init_parser.add_argument(\"repo_path\")\n    init_parser.add_argument(\"--config\", dest=\"config\", help=\"CONFIG_PATH\")\n    \n    chunk_parser = subparsers.add_parser(\"chunk-code\")\n    chunk_parser.add_argument(\"repo_path\")\n    chunk_parser.add_argument(\"--config\", dest=\"config\", help=\"CONFIG_PATH\")\n    \n    args = parser.parse_args()\n    \n    if args.command == \"init\":\n        cmd_init(args)\n    elif args.command == \"chunk-code\":\n        cmd_chunk_code(args)\n",
+  "docstring": null
+}

@@ -1,0 +1,4 @@
+{
+  "source_text": "def apply_schema(conn: sqlite3.Connection) -> None:\n    for stmt in SCHEMA_STATEMENTS:\n        conn.execute(stmt)\n    conn.commit()\n",
+  "docstring": null
+}

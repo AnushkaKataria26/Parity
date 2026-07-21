@@ -1,0 +1,4 @@
+{
+  "source_text": "def get_or_create_collections(client: chromadb.PersistentClient) -> Tuple[chromadb.Collection, chromadb.Collection]:\n    code_collection = client.get_or_create_collection(name=\"code_chunks\", embedding_function=None)\n    doc_collection = client.get_or_create_collection(name=\"doc_chunks\", embedding_function=None)\n    return code_collection, doc_collection\n",
+  "docstring": null
+}

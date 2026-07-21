@@ -1,0 +1,4 @@
+chromadb
+pyyaml
+requests
+pytest

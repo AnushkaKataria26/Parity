@@ -1,0 +1,4 @@
+{
+  "source_text": "def check_ollama_reachable(host: str = \"http://localhost:11434\", timeout: float = 3.0) -> bool:\n    try:\n        response = requests.get(f\"{host}/api/tags\", timeout=timeout)\n        return response.status_code >= 200 and response.status_code < 300\n    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, Exception):\n        return False\n",
+  "docstring": null
+}

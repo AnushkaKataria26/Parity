@@ -1,0 +1,4 @@
+db_path: data/parity.db
+chroma_persist_dir: data/chroma
+ollama_host: http://localhost:11434
+ollama_model: llama3:8b
