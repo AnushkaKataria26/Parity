@@ -213,6 +213,103 @@ def cmd_chunk_docs(args):
     print(f"  Code blocks extracted: {total_code_blocks}")
     print(f"  Chunk bodies written to: data/doc_chunk_bodies/{repo_id}/")
 
+def cmd_extract_claims(args):
+    repo_path = os.path.abspath(args.repo_path)
+    
+    if not os.path.exists(repo_path):
+        print(f"Error: repo path '{repo_path}' does not exist", file=sys.stderr)
+        sys.exit(1)
+        
+    if not os.path.isdir(repo_path):
+        print(f"Error: repo path '{repo_path}' is not a directory", file=sys.stderr)
+        sys.exit(1)
+        
+    config = load_config(args.config if args.config else "config.yaml")
+    
+    ollama_ok = check_ollama_reachable(config["ollama_host"])
+    if not ollama_ok:
+        print(f"Error: Ollama not reachable or model '{config['ollama_model']}' not available — run 'ollama pull {config['ollama_model']}' and ensure 'ollama serve' is running", file=sys.stderr)
+        sys.exit(1)
+        
+    model_ok = check_model_available(config["ollama_model"], config["ollama_host"])
+    if not model_ok:
+        print(f"Error: Ollama not reachable or model '{config['ollama_model']}' not available — run 'ollama pull {config['ollama_model']}' and ensure 'ollama serve' is running", file=sys.stderr)
+        sys.exit(1)
+
+    conn = get_connection(config["db_path"])
+    
+    cursor = conn.execute("SELECT id FROM repos WHERE path = ?", (repo_path,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"Error: repo '{repo_path}' not initialized — run 'init' first", file=sys.stderr)
+        sys.exit(1)
+        
+    repo_id = row[0]
+    
+    query = "SELECT id, file_path, heading, text FROM doc_chunks WHERE repo_id = ? ORDER BY id"
+    if args.limit:
+        query += f" LIMIT {args.limit}"
+        
+    cursor = conn.execute(query, (repo_id,))
+    doc_chunks = cursor.fetchall()
+    
+    if not doc_chunks:
+        print(f"Warning: no doc chunks found — run chunk-docs first", file=sys.stderr)
+        sys.exit(0)
+        
+    from parity.extraction.extractor import extract_claims_for_chunk, store_claims
+    from parity.extraction.prompts import CLAIM_TYPES
+    
+    total_processed = 0
+    total_claims = 0
+    type_counts = {t: 0 for t in CLAIM_TYPES}
+    type_counts["behavior"] = 0
+    
+    parse_failures = 0
+    llm_errors = 0
+    
+    for chunk in doc_chunks:
+        # We need to adapt the tuple to dictionary-like or pass as is because of extract_claims_for_chunk handling
+        # Since it's a sqlite3.Row, it supports index mapping. We should map it properly:
+        # id=0, file_path=1, heading=2, text=3
+        # extract_claims_for_chunk fallback mapping handles this.
+        chunk_dict = {
+            "id": chunk[0],
+            "file_path": chunk[1],
+            "heading": chunk[2],
+            "text": chunk[3]
+        }
+        
+        claims, p_fail, l_error = extract_claims_for_chunk(chunk_dict, config["ollama_model"], config["ollama_host"])
+        total_processed += 1
+        
+        if p_fail:
+            parse_failures += 1
+        if l_error:
+            llm_errors += 1
+            
+        if claims:
+            total_claims += len(claims)
+            for c in claims:
+                type_counts[c.claim_type] = type_counts.get(c.claim_type, 0) + 1
+            store_claims(conn, chunk[0], claims)
+            
+    if llm_errors > 0 and llm_errors == total_processed:
+        print("Warning: all extraction calls failed — check that Ollama is still running", file=sys.stderr)
+        
+    print(f"Parity extract-claims summary for {repo_path}")
+    print(f"  Doc chunks processed:   {total_processed}")
+    print(f"  Claims extracted:       {total_claims}")
+    print(f"    signature:      {type_counts.get('signature', 0)}")
+    print(f"    default_value:  {type_counts.get('default_value', 0)}")
+    print(f"    env_var:        {type_counts.get('env_var', 0)}")
+    print(f"    return_type:    {type_counts.get('return_type', 0)}")
+    print(f"    behavior:       {type_counts.get('behavior', 0)}")
+    print(f"  Chunks with parse failures (after retry): {parse_failures}")
+    print(f"  Chunks with LLM call errors:              {llm_errors}")
+    
+    sys.exit(0)
+
 def main():
     parser = argparse.ArgumentParser(prog="parity")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -233,6 +330,11 @@ def main():
     embed_parser.add_argument("repo_path")
     embed_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
     
+    extract_parser = subparsers.add_parser("extract-claims")
+    extract_parser.add_argument("repo_path")
+    extract_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    extract_parser.add_argument("--limit", type=int, help="Optional limit on doc chunks processed")
+    
     args = parser.parse_args()
     
     if args.command == "init":
@@ -243,6 +345,8 @@ def main():
         cmd_chunk_docs(args)
     elif args.command == "embed":
         cmd_embed(args)
+    elif args.command == "extract-claims":
+        cmd_extract_claims(args)
 
 if __name__ == "__main__":
     main()
