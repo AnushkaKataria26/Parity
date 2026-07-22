@@ -1,0 +1,4 @@
+{
+  "source_text": "@dataclass\nclass DocChunk:\n    file_path: str              # relative to repo root\n    heading_path: str           # e.g. \"Installation > Requirements\"\n    heading_level: int          # 1-6, or 0 for pre-heading content\n    text: str                   # prose content, code fences stripped out\n    code_blocks: List[str]      # fenced code block contents, stored separately\n    start_line: int\n    end_line: int\n",
+  "docstring": null
+}

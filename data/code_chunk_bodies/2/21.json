@@ -1,0 +1,4 @@
+{
+  "source_text": "def _get_end_lineno(node: ast.AST) -> int:\n    if hasattr(node, 'end_lineno') and node.end_lineno is not None:\n        return node.end_lineno\n    \n    max_line = node.lineno\n    for child in ast.walk(node):\n        if hasattr(child, 'lineno') and child.lineno is not None:\n            max_line = max(max_line, child.lineno)\n        if hasattr(child, 'end_lineno') and child.end_lineno is not None:\n            max_line = max(max_line, child.end_lineno)\n    return max_line\n",
+  "docstring": null
+}

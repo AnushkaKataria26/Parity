@@ -1,0 +1,4 @@
+{
+  "source_text": "@dataclass\nclass ExtractedClaim:\n    claim_text: str\n    claim_type: str\n    referenced_symbol_guess: str | None\n",
+  "docstring": null
+}

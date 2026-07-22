@@ -1,0 +1,4 @@
+{
+  "source_text": "@dataclass\nclass RetrievalCandidate:\n    code_chunk_id: int\n    symbol_name: str\n    score: float\n",
+  "docstring": null
+}

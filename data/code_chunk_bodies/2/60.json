@@ -1,0 +1,4 @@
+{
+  "source_text": "def extract_claims_raw(doc_chunk_text: str, heading_path: str, model_name: str, host: str, timeout: float = 60.0, retry_message: str = None) -> str:\n    import ollama\n    \n    # Generate the prompt\n    from parity.extraction.prompts import build_extraction_prompt\n    prompt = build_extraction_prompt(doc_chunk_text, heading_path)\n    if retry_message:\n        prompt += f\"\\n\\n{retry_message}\"\n    \n    try:\n        client = ollama.Client(host=host)\n        # We use temperature 0.0 for deterministic extraction since structured output is desired.\n        response = client.generate(\n            model=model_name,\n            prompt=prompt,\n            stream=False,\n            options={\"temperature\": 0.0}\n        )\n        return response.get(\"response\", \"\")\n    except Exception as e:\n        raise LLMCallError(f\"Failed to generate claims via Ollama: {str(e)}\") from e\n",
+  "docstring": null
+}

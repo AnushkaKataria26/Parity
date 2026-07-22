@@ -1,0 +1,4 @@
+{
+  "source_text": "    def build(self, end_line: int) -> DocChunk:\n        # Build text by including lines NOT in fence_line_ranges\n        text_lines = []\n        for i in range(self.start_line - 1, end_line):\n            in_fence = False\n            for (f_start, f_end) in self.fence_line_ranges:\n                if f_start <= i < f_end:\n                    in_fence = True\n                    break\n            if not in_fence:\n                text_lines.append(self.lines[i])\n                \n        return DocChunk(\n            file_path=self.file_path,\n            heading_path=self.heading_path,\n            heading_level=self.heading_level,\n            text=\"\".join(text_lines).strip(),\n            code_blocks=list(self.code_blocks),\n            start_line=self.start_line,\n            end_line=end_line\n        )\n",
+  "docstring": null
+}

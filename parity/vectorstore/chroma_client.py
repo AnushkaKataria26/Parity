@@ -7,6 +7,14 @@ def get_chroma_client(persist_dir: str) -> chromadb.PersistentClient:
     return chromadb.PersistentClient(path=persist_dir)
 
 def get_or_create_collections(client: chromadb.PersistentClient) -> Tuple[chromadb.Collection, chromadb.Collection]:
-    code_collection = client.get_or_create_collection(name="code_chunks", embedding_function=None)
-    doc_collection = client.get_or_create_collection(name="doc_chunks", embedding_function=None)
+    code_collection = client.get_or_create_collection(
+        name="code_chunks", 
+        embedding_function=None,
+        metadata={"hnsw:space": "cosine"}
+    )
+    doc_collection = client.get_or_create_collection(
+        name="doc_chunks", 
+        embedding_function=None,
+        metadata={"hnsw:space": "cosine"}
+    )
     return code_collection, doc_collection

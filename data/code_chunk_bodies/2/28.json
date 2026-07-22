@@ -1,0 +1,4 @@
+{
+  "source_text": "    def __init__(self, file_path: str, lines: List[str]):\n        self.file_path = file_path\n        self.lines = lines\n        self.heading_path = f\"{file_path} (preamble)\"\n        self.heading_level = 0\n        self.start_line = 1\n        self.code_blocks = []\n        self.fence_line_ranges = [] # list of (start_idx, end_idx) 0-indexed\n",
+  "docstring": null
+}

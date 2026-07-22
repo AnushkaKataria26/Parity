@@ -34,10 +34,21 @@ SCHEMA_STATEMENTS = [
     """CREATE TABLE IF NOT EXISTS verification_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     claim_id INTEGER NOT NULL REFERENCES claims(id),
+    -- NOTE: matched_code_chunk_id conceptually belongs in retrieval_results, but is also stored
+    -- here at verification time by copying the resolved match forward, rather than written by
+    -- Phase 5 directly, to avoid partial/placeholder rows in verification_results.
     matched_code_chunk_id INTEGER REFERENCES code_chunks(id),
     status TEXT NOT NULL,
     actual_value TEXT,
     claimed_value TEXT,
     verified_at TEXT NOT NULL
+);""",
+    """CREATE TABLE IF NOT EXISTS retrieval_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    claim_id INTEGER NOT NULL REFERENCES claims(id),
+    matched_code_chunk_id INTEGER REFERENCES code_chunks(id),
+    match_status TEXT NOT NULL,
+    top_k_json TEXT NOT NULL,
+    retrieved_at TEXT NOT NULL
 );"""
 ]

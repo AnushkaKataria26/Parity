@@ -310,6 +310,61 @@ def cmd_extract_claims(args):
     
     sys.exit(0)
 
+def cmd_retrieve(args):
+    repo_path = os.path.abspath(args.repo_path)
+    
+    if not os.path.exists(repo_path):
+        print(f"Error: repo path '{repo_path}' does not exist", file=sys.stderr)
+        sys.exit(1)
+        
+    if not os.path.isdir(repo_path):
+        print(f"Error: repo path '{repo_path}' is not a directory", file=sys.stderr)
+        sys.exit(1)
+        
+    config = load_config(args.config if args.config else "config.yaml")
+    conn = get_connection(config["db_path"])
+    
+    cursor = conn.execute("SELECT id FROM repos WHERE path = ?", (repo_path,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"Error: repo '{repo_path}' not initialized — run 'init' first", file=sys.stderr)
+        sys.exit(1)
+        
+    repo_id = row[0]
+    
+    # Check if there are claims for this repo
+    cursor = conn.execute("SELECT COUNT(*) FROM claims c JOIN doc_chunks d ON c.doc_chunk_id = d.id WHERE d.repo_id = ?", (repo_id,))
+    claims_count = cursor.fetchone()[0]
+    if claims_count == 0:
+        print(f"Warning: no claims found — run extract-claims first")
+        sys.exit(0)
+        
+    # Check if there are embedded code chunks
+    cursor = conn.execute("SELECT COUNT(*) FROM code_chunks WHERE repo_id = ? AND embedding_id IS NOT NULL", (repo_id,))
+    embedded_chunks_count = cursor.fetchone()[0]
+    if embedded_chunks_count == 0:
+        print(f"Error: no embedded code chunks found — run 'embed' first", file=sys.stderr)
+        sys.exit(1)
+        
+    client = get_chroma_client(config["chroma_persist_dir"])
+    code_col, _ = get_or_create_collections(client)
+    
+    from parity.retrieval.retriever import retrieve_for_repo
+    top_k = args.top_k if args.top_k else 5
+    summary = retrieve_for_repo(conn, repo_id, code_col, "BAAI/bge-small-en-v1.5", top_k)
+    
+    print(f"Parity retrieve summary for {repo_path}")
+    print(f"  Claims processed:  {summary['total_claims']}")
+    if summary['total_claims'] > 0:
+        matched_pct = (summary['matched'] / summary['total_claims']) * 100
+        ambiguous_pct = (summary['ambiguous'] / summary['total_claims']) * 100
+        no_match_pct = (summary['no_match'] / summary['total_claims']) * 100
+        print(f"  Matched:      {summary['matched']} ({matched_pct:.1f}%)")
+        print(f"  Ambiguous:    {summary['ambiguous']} ({ambiguous_pct:.1f}%)")
+        print(f"  No match:     {summary['no_match']} ({no_match_pct:.1f}%)")
+    
+    sys.exit(0)
+
 def main():
     parser = argparse.ArgumentParser(prog="parity")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -335,6 +390,11 @@ def main():
     extract_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
     extract_parser.add_argument("--limit", type=int, help="Optional limit on doc chunks processed")
     
+    retrieve_parser = subparsers.add_parser("retrieve")
+    retrieve_parser.add_argument("repo_path")
+    retrieve_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    retrieve_parser.add_argument("--top-k", type=int, dest="top_k", help="Optional top-k for retrieval")
+    
     args = parser.parse_args()
     
     if args.command == "init":
@@ -347,6 +407,8 @@ def main():
         cmd_embed(args)
     elif args.command == "extract-claims":
         cmd_extract_claims(args)
+    elif args.command == "retrieve":
+        cmd_retrieve(args)
 
 if __name__ == "__main__":
     main()
