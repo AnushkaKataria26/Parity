@@ -9,7 +9,8 @@ from parity.db.migrate import apply_schema, upsert_repo
 from parity.vectorstore.chroma_client import get_chroma_client, get_or_create_collections
 from parity.llm.ollama_client import check_ollama_reachable, check_model_available
 from parity.chunking.ast_chunker import discover_python_files, extract_chunks_from_file
-from parity.db.chunk_ops import store_chunks
+from parity.chunking.doc_chunker import discover_doc_files, extract_chunks_from_markdown, extract_chunks_from_rst
+from parity.db.chunk_ops import store_chunks, store_doc_chunks
 
 def cmd_init(args):
     repo_path = os.path.abspath(args.repo_path)
@@ -113,6 +114,57 @@ def cmd_chunk_code(args):
     print(f"    classes:    {classes}")
     print(f"  Chunk bodies written to: data/code_chunk_bodies/{repo_id}/")
 
+def cmd_chunk_docs(args):
+    repo_path = os.path.abspath(args.repo_path)
+    
+    if not os.path.exists(repo_path):
+        print(f"Error: repo path '{repo_path}' does not exist", file=sys.stderr)
+        sys.exit(1)
+        
+    if not os.path.isdir(repo_path):
+        print(f"Error: repo path '{repo_path}' is not a directory", file=sys.stderr)
+        sys.exit(1)
+        
+    config = load_config(args.config if args.config else "config.yaml")
+    conn = get_connection(config["db_path"])
+    
+    cursor = conn.execute("SELECT id FROM repos WHERE path = ?", (repo_path,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"Error: repo '{repo_path}' not initialized — run 'init' first", file=sys.stderr)
+        sys.exit(1)
+        
+    repo_id = row[0]
+    
+    doc_files = discover_doc_files(repo_path)
+    if not doc_files:
+        print(f"Warning: no documentation files found in '{repo_path}'", file=sys.stderr)
+    
+    all_chunks = []
+    
+    for file_path in doc_files:
+        if file_path.lower().endswith('.rst'):
+            chunks = extract_chunks_from_rst(file_path, repo_path)
+        else:
+            chunks = extract_chunks_from_markdown(file_path, repo_path)
+        all_chunks.extend(chunks)
+        
+    store_doc_chunks(conn, repo_id, all_chunks)
+    
+    total_chunks = len(all_chunks)
+    with_headings = sum(1 for c in all_chunks if c.heading_level > 0)
+    preamble_only = sum(1 for c in all_chunks if c.heading_level == 0)
+    empty_sections = sum(1 for c in all_chunks if not c.text)
+    total_code_blocks = sum(len(c.code_blocks) for c in all_chunks)
+    
+    print(f"Parity chunk-docs summary for {repo_path}")
+    print(f"  Doc files scanned:   {len(doc_files)}")
+    print(f"  Chunks extracted:    {total_chunks}")
+    print(f"    with headings:  {with_headings}")
+    print(f"    preamble-only:  {preamble_only}")
+    print(f"    empty sections: {empty_sections}")
+    print(f"  Code blocks extracted: {total_code_blocks}")
+    print(f"  Chunk bodies written to: data/doc_chunk_bodies/{repo_id}/")
 
 def main():
     parser = argparse.ArgumentParser(prog="parity")
@@ -126,12 +178,18 @@ def main():
     chunk_parser.add_argument("repo_path")
     chunk_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
     
+    doc_chunk_parser = subparsers.add_parser("chunk-docs")
+    doc_chunk_parser.add_argument("repo_path")
+    doc_chunk_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    
     args = parser.parse_args()
     
     if args.command == "init":
         cmd_init(args)
     elif args.command == "chunk-code":
         cmd_chunk_code(args)
+    elif args.command == "chunk-docs":
+        cmd_chunk_docs(args)
 
 if __name__ == "__main__":
     main()

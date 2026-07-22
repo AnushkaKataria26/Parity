@@ -2,3 +2,4 @@ chromadb
 pyyaml
 requests
 pytest
+markdown-it-py

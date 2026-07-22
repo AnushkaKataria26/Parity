@@ -16,15 +16,13 @@ class CodeChunk:
     docstring: Optional[str]
     ast_hash: str
 
+from parity.chunking.common import EXCLUDED_DIRS
+
 def discover_python_files(repo_path: str) -> List[str]:
     """
     Walk repo_path recursively and discover Python files.
     Excludes test files and specific directories.
     """
-    excluded_dirs = {
-        '.git', '__pycache__', '.venv', 'venv', 'env', '.tox',
-        'build', 'dist', '.eggs', 'node_modules', '.mypy_cache', '.pytest_cache'
-    }
     
     # We deliberately exclude tests because they document testing behavior,
     # not the public API that docs claim things about.
@@ -34,7 +32,7 @@ def discover_python_files(repo_path: str) -> List[str]:
     # os.walk by default has followlinks=False, which is what we want
     for root, dirs, files in os.walk(repo_path):
         # Filter directories in place so os.walk doesn't traverse them
-        dirs[:] = [d for d in dirs if d not in excluded_dirs and not fnmatch.fnmatch(d, '*.egg-info')]
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS and not fnmatch.fnmatch(d, '*.egg-info')]
         
         path_parts = set(root.split(os.sep))
         if any(p in {'test', 'tests', 'testing'} for p in path_parts):
