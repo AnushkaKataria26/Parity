@@ -11,6 +11,53 @@ from parity.llm.ollama_client import check_ollama_reachable, check_model_availab
 from parity.chunking.ast_chunker import discover_python_files, extract_chunks_from_file
 from parity.chunking.doc_chunker import discover_doc_files, extract_chunks_from_markdown, extract_chunks_from_rst
 from parity.db.chunk_ops import store_chunks, store_doc_chunks
+from parity.embedding.model import embed_repo
+
+def cmd_embed(args):
+    repo_path = os.path.abspath(args.repo_path)
+    
+    if not os.path.exists(repo_path):
+        print(f"Error: repo path '{repo_path}' does not exist", file=sys.stderr)
+        sys.exit(1)
+        
+    if not os.path.isdir(repo_path):
+        print(f"Error: repo path '{repo_path}' is not a directory", file=sys.stderr)
+        sys.exit(1)
+        
+    config = load_config(args.config if args.config else "config.yaml")
+    conn = get_connection(config["db_path"])
+    
+    cursor = conn.execute("SELECT id FROM repos WHERE path = ?", (repo_path,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"Error: repo '{repo_path}' not initialized — run 'init' first", file=sys.stderr)
+        sys.exit(1)
+        
+    repo_id = row[0]
+    
+    # Sanity-check chunks exist
+    cursor = conn.execute("SELECT COUNT(*) FROM code_chunks WHERE repo_id = ?", (repo_id,))
+    code_count = cursor.fetchone()[0]
+    if code_count == 0:
+        print(f"Warning: code_chunks is empty for this repo — run chunk-code first", file=sys.stderr)
+        
+    cursor = conn.execute("SELECT COUNT(*) FROM doc_chunks WHERE repo_id = ?", (repo_id,))
+    doc_count = cursor.fetchone()[0]
+    if doc_count == 0:
+        print(f"Warning: doc_chunks is empty for this repo — run chunk-docs first", file=sys.stderr)
+        
+    # Get chroma client and collections
+    client = get_chroma_client(config["chroma_persist_dir"])
+    code_col, doc_col = get_or_create_collections(client)
+    
+    # Embed
+    summary = embed_repo(conn, repo_id, client, code_col, doc_col)
+    
+    print(f"Parity embed summary for {repo_path}")
+    print(f"  Code chunks embedded:  {summary['code_chunks_embedded']}  ({summary['code_fallback_count']} used fallback text)")
+    print(f"  Doc chunks embedded:   {summary['doc_chunks_embedded']}  ({summary['doc_fallback_count']} used fallback text)")
+    print(f"  Model: BAAI/bge-small-en-v1.5")
+    sys.exit(0)
 
 def cmd_init(args):
     repo_path = os.path.abspath(args.repo_path)
@@ -182,6 +229,10 @@ def main():
     doc_chunk_parser.add_argument("repo_path")
     doc_chunk_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
     
+    embed_parser = subparsers.add_parser("embed")
+    embed_parser.add_argument("repo_path")
+    embed_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    
     args = parser.parse_args()
     
     if args.command == "init":
@@ -190,6 +241,8 @@ def main():
         cmd_chunk_code(args)
     elif args.command == "chunk-docs":
         cmd_chunk_docs(args)
+    elif args.command == "embed":
+        cmd_embed(args)
 
 if __name__ == "__main__":
     main()

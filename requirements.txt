@@ -3,3 +3,4 @@ pyyaml
 requests
 pytest
 markdown-it-py
+sentence-transformers
