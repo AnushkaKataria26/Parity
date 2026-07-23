@@ -1,4 +1,0 @@
-{
-  "source_text": "def build_doc_chunk_embedding_text(chunk_row: dict, body_json: dict) -> str:\n    \"\"\"\n    Builds the text to be embedded for a doc chunk.\n    \n    Code blocks are excluded from the embedding input since they are stored separately \n    and mixing code syntax into prose degrades semantic matching.\n    \"\"\"\n    heading = chunk_row.get(\"heading\", \"\")\n    text = chunk_row.get(\"text\", \"\")\n    \n    components = [\n        heading if heading else \"\",\n        text if text else \"\"\n    ]\n    return \"\\\\n\".join(c for c in components if c).strip()\n",
-  "docstring": "Builds the text to be embedded for a doc chunk.\n\nCode blocks are excluded from the embedding input since they are stored separately \nand mixing code syntax into prose degrades semantic matching."
-}

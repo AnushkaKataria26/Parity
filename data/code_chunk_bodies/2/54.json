@@ -1,4 +1,0 @@
-{
-  "source_text": "def store_claims(conn: sqlite3.Connection, doc_chunk_id: int, claims: List[ExtractedClaim]) -> int:\n    with conn:\n        conn.execute(\"DELETE FROM claims WHERE doc_chunk_id = ?\", (doc_chunk_id,))\n        for claim in claims:\n            conn.execute(\n                '''\n                INSERT INTO claims (doc_chunk_id, claim_text, claim_type, referenced_symbol_guess)\n                VALUES (?, ?, ?, ?)\n                ''',\n                (doc_chunk_id, claim.claim_text, claim.claim_type, claim.referenced_symbol_guess)\n            )\n    return len(claims)\n",
-  "docstring": null
-}

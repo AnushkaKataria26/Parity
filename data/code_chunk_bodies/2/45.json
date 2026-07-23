@@ -1,4 +1,0 @@
-{
-  "source_text": "def get_embedding_model(model_name: str = \"BAAI/bge-small-en-v1.5\"):\n    \"\"\"\n    Returns a cached SentenceTransformer instance for the given model_name.\n    Loads it if not already cached.\n    \"\"\"\n    from sentence_transformers import SentenceTransformer\n    \n    if model_name not in _MODEL_CACHE:\n        logging.info(f\"Loading embedding model '{model_name}' (this may download on first run)...\")\n        _MODEL_CACHE[model_name] = SentenceTransformer(model_name)\n    return _MODEL_CACHE[model_name]\n",
-  "docstring": "Returns a cached SentenceTransformer instance for the given model_name.\nLoads it if not already cached."
-}

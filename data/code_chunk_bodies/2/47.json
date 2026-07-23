@@ -1,4 +1,0 @@
-{
-  "source_text": "def extract_signature_line(source_text: str) -> str:\n    \"\"\"\n    Extracts the signature line from a function/class definition, \n    skipping decorators.\n    \"\"\"\n    if not source_text:\n        return \"\"\n    \n    for line in source_text.splitlines():\n        stripped = line.strip()\n        if stripped.startswith(\"def \") or stripped.startswith(\"async def \") or stripped.startswith(\"class \"):\n            return line\n    return \"\"\n",
-  "docstring": "Extracts the signature line from a function/class definition, \nskipping decorators."
-}

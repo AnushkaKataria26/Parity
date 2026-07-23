@@ -1,4 +1,0 @@
-{
-  "source_text": "@dataclass\nclass RetrievalResult:\n    claim_id: int\n    matched_code_chunk_id: Optional[int]\n    match_status: str\n    top_k: List[RetrievalCandidate]\n",
-  "docstring": null
-}

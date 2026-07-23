@@ -1,4 +1,0 @@
-{
-  "source_text": "def get_chroma_client(persist_dir: str) -> chromadb.PersistentClient:\n    os.makedirs(os.path.abspath(persist_dir), exist_ok=True)\n    return chromadb.PersistentClient(path=persist_dir)\n",
-  "docstring": null
-}

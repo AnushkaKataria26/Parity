@@ -592,6 +592,102 @@ def cmd_report(args):
         
     return
 
+import json
+import glob
+
+def cmd_eval_faults(args):
+    repo_path = os.path.abspath(args.repo_path)
+    if not os.path.isdir(repo_path):
+        print(f"Error: repo path '{repo_path}' is not a directory", file=sys.stderr)
+        sys.exit(1)
+        
+    config = load_config(args.config if args.config else "config.yaml")
+    conn = get_connection(config["db_path"])
+    
+    cursor = conn.execute("SELECT id FROM repos WHERE path = ?", (repo_path,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"Error: repo '{repo_path}' not initialized — run 'init' first", file=sys.stderr)
+        sys.exit(1)
+    repo_id = row[0]
+    
+    from parity.evaluation.run_fault_eval import run_fault_injection_eval
+    from parity.evaluation.metrics_report import render_metrics_summary
+    
+    res = run_fault_injection_eval(conn, repo_id, repo_path, config, n_faults=args.n_faults)
+    
+    out_dir = os.path.join("data", "eval")
+    os.makedirs(out_dir, exist_ok=True)
+    import time
+    ts = int(time.time())
+    out_file = os.path.join(out_dir, f"fault_injection_{ts}.json")
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(res, f, indent=2)
+        
+    print(f"Fault injection eval written to {out_file}")
+    print(render_metrics_summary(res, None))
+
+def cmd_export_labels(args):
+    repo_path = os.path.abspath(args.repo_path)
+    config = load_config(args.config if args.config else "config.yaml")
+    conn = get_connection(config["db_path"])
+    
+    cursor = conn.execute("SELECT id FROM repos WHERE path = ?", (repo_path,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"Error: repo '{repo_path}' not initialized", file=sys.stderr)
+        sys.exit(1)
+    repo_id = row[0]
+    
+    from parity.evaluation.extraction_eval import export_claims_for_labeling
+    out_path = args.out if args.out else "data/eval/claims_for_labeling.csv"
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    export_claims_for_labeling(conn, repo_id, out_path)
+    
+def cmd_score_extraction(args):
+    repo_path = os.path.abspath(args.repo_path)
+    config = load_config(args.config if args.config else "config.yaml")
+    conn = get_connection(config["db_path"])
+    
+    cursor = conn.execute("SELECT id FROM repos WHERE path = ?", (repo_path,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"Error: repo '{repo_path}' not initialized", file=sys.stderr)
+        sys.exit(1)
+    repo_id = row[0]
+    
+    from parity.evaluation.extraction_eval import score_extraction
+    res = score_extraction(conn, repo_id, args.labeled)
+    
+    out_dir = os.path.join("data", "eval")
+    os.makedirs(out_dir, exist_ok=True)
+    import time
+    ts = int(time.time())
+    out_file = os.path.join(out_dir, f"extraction_score_{ts}.json")
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(res, f, indent=2)
+    print(f"Extraction score eval written to {out_file}")
+
+def cmd_eval_summary(args):
+    out_dir = os.path.join("data", "eval")
+    fault_files = sorted(glob.glob(os.path.join(out_dir, "fault_injection_*.json")))
+    ext_files = sorted(glob.glob(os.path.join(out_dir, "extraction_score_*.json")))
+    
+    if not fault_files:
+        print("No evaluation data found — run 'eval-faults' first.")
+        sys.exit(0)
+        
+    with open(fault_files[-1], "r", encoding="utf-8") as f:
+        fault_res = json.load(f)
+        
+    ext_res = None
+    if ext_files:
+        with open(ext_files[-1], "r", encoding="utf-8") as f:
+            ext_res = json.load(f)
+            
+    from parity.evaluation.metrics_report import render_metrics_summary
+    print(render_metrics_summary(fault_res, ext_res))
+
 def main():
     parser = argparse.ArgumentParser(prog="parity")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -638,6 +734,25 @@ def main():
     run_all_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
     run_all_parser.add_argument("--full", action="store_true", help="Force full rescan")
     
+    eval_faults_parser = subparsers.add_parser("eval-faults")
+    eval_faults_parser.add_argument("repo_path")
+    eval_faults_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    eval_faults_parser.add_argument("--n-faults", type=int, default=15, help="Number of faults to inject")
+    
+    export_labels_parser = subparsers.add_parser("export-labels")
+    export_labels_parser.add_argument("repo_path")
+    export_labels_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    export_labels_parser.add_argument("--out", dest="out", help="Output CSV path")
+    
+    score_ext_parser = subparsers.add_parser("score-extraction")
+    score_ext_parser.add_argument("repo_path")
+    score_ext_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    score_ext_parser.add_argument("--labeled", dest="labeled", required=True, help="Path to labeled CSV")
+    
+    eval_summary_parser = subparsers.add_parser("eval-summary")
+    eval_summary_parser.add_argument("repo_path", nargs="?", default=".", help="Optional repo path")
+    eval_summary_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    
     args = parser.parse_args()
     
     if args.command == "init":
@@ -656,6 +771,14 @@ def main():
         cmd_verify(args)
     elif args.command == "report":
         cmd_report(args)
+    elif args.command == "eval-faults":
+        cmd_eval_faults(args)
+    elif args.command == "export-labels":
+        cmd_export_labels(args)
+    elif args.command == "score-extraction":
+        cmd_score_extraction(args)
+    elif args.command == "eval-summary":
+        cmd_eval_summary(args)
     elif args.command == "run-all":
         import time
         start_time = time.time()

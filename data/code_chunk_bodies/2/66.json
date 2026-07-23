@@ -1,4 +1,0 @@
-{
-  "source_text": "def get_or_create_collections(client: chromadb.PersistentClient) -> Tuple[chromadb.Collection, chromadb.Collection]:\n    code_collection = client.get_or_create_collection(\n        name=\"code_chunks\", \n        embedding_function=None,\n        metadata={\"hnsw:space\": \"cosine\"}\n    )\n    doc_collection = client.get_or_create_collection(\n        name=\"doc_chunks\", \n        embedding_function=None,\n        metadata={\"hnsw:space\": \"cosine\"}\n    )\n    return code_collection, doc_collection\n",
-  "docstring": null
-}

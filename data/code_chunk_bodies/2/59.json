@@ -1,4 +1,0 @@
-{
-  "source_text": "class LLMCallError(Exception):\n    \"\"\"Custom exception for LLM call failures.\"\"\"\n    pass\n",
-  "docstring": "Custom exception for LLM call failures."
-}

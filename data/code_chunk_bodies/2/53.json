@@ -1,4 +1,0 @@
-{
-  "source_text": "    def attempt_extraction(prompt_modifier: str = \"\") -> Tuple[List[ExtractedClaim], List[str], bool]:\n        try:\n            raw_response = extract_claims_raw(doc_chunk_text, heading_path, model_name, host, retry_message=prompt_modifier)\n        except LLMCallError as e:\n            logger.error(f\"Error: LLM call failed for chunk id {chunk_id}: {str(e)}\")\n            return [], [], True # hard failure\n            \n        valid_claims, validation_errors = parse_and_validate_claims(raw_response)\n        return valid_claims, validation_errors, False\n",
-  "docstring": null
-}

@@ -1,4 +1,0 @@
-{
-  "source_text": "def upsert_repo(conn: sqlite3.Connection, name: str, path: str, commit_sha: str | None) -> int:\n    abs_path = os.path.abspath(path)\n    conn.execute(\n        \"\"\"INSERT INTO repos (name, path, last_ingested_commit_sha) \n           VALUES (?, ?, ?) \n           ON CONFLICT(path) DO UPDATE SET \n           name=excluded.name, \n           last_ingested_commit_sha=excluded.last_ingested_commit_sha\"\"\",\n        (name, abs_path, commit_sha)\n    )\n    conn.commit()\n    \n    cursor = conn.execute(\"SELECT id FROM repos WHERE path = ?\", (abs_path,))\n    return cursor.fetchone()[\"id\"]\n",
-  "docstring": null
-}

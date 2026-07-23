@@ -1,4 +1,0 @@
-{
-  "source_text": "def load_config(path: str = \"config.yaml\") -> dict:\n    import os\n    if not os.path.exists(path):\n        print(f\"Warning: config file '{path}' not found, using defaults\", file=sys.stderr)\n        return copy.deepcopy(DEFAULT_CONFIG)\n    \n    try:\n        with open(path, 'r') as f:\n            file_config = yaml.safe_load(f)\n    except Exception as e:\n        print(f\"Error: failed to parse config file '{path}': {e}\", file=sys.stderr)\n        sys.exit(1)\n        \n    merged = copy.deepcopy(DEFAULT_CONFIG)\n    if file_config and isinstance(file_config, dict):\n        merged.update(file_config)\n        \n    return merged\n",
-  "docstring": null
-}

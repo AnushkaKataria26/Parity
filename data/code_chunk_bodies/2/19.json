@@ -1,4 +1,0 @@
-{
-  "source_text": "@dataclass\nclass CodeChunk:\n    file_path: str          # relative to repo root\n    symbol_name: str        # dotted path, e.g. \"MyClass.my_method\"\n    symbol_type: str        # \"function\" | \"async_function\" | \"class\" | \"method\" | \"async_method\"\n    start_line: int\n    end_line: int\n    source_text: str        # exact source slice, including decorators\n    docstring: Optional[str]\n    ast_hash: str\n",
-  "docstring": null
-}
