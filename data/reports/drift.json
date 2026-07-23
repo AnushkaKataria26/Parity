@@ -1,0 +1,12 @@
+{
+  "repo_name": "Parity",
+  "repo_path": "/Users/anushkakataria/Desktop/Placement/Projects/Parity",
+  "generated_at": "2026-07-23T09:02:36.821006+00:00",
+  "commit_sha": "6f129a36d7cc15d288e5b7925f8e3a0e431bf55e",
+  "totals": {
+    "verified": 0,
+    "contradicted": 0,
+    "unverifiable": 0
+  },
+  "files": {}
+}

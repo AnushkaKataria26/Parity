@@ -428,6 +428,63 @@ def cmd_verify(args):
     
     sys.exit(0)
 
+def cmd_report(args):
+    repo_path = os.path.abspath(args.repo_path)
+    
+    if not os.path.exists(repo_path):
+        print(f"Error: repo path '{repo_path}' does not exist", file=sys.stderr)
+        sys.exit(1)
+        
+    if not os.path.isdir(repo_path):
+        print(f"Error: repo path '{repo_path}' is not a directory", file=sys.stderr)
+        sys.exit(1)
+        
+    config = load_config(args.config if args.config else "config.yaml")
+    conn = get_connection(config["db_path"])
+    
+    cursor = conn.execute("SELECT id FROM repos WHERE path = ?", (repo_path,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"Error: repo '{repo_path}' not initialized — run 'init' first", file=sys.stderr)
+        sys.exit(1)
+        
+    repo_id = row[0]
+    
+    cursor = conn.execute("""
+        SELECT COUNT(*) FROM verification_results vr
+        JOIN claims c ON vr.claim_id = c.id
+        JOIN doc_chunks d ON c.doc_chunk_id = d.id
+        WHERE d.repo_id = ?
+    """, (repo_id,))
+    
+    if cursor.fetchone()[0] == 0:
+        print("Warning: no verification results found — run 'verify' first", file=sys.stderr)
+        
+    from parity.reporting.build_report import build_drift_report
+    from parity.reporting.render_text import render_text_report
+    from parity.reporting.render_json import render_json_report
+    
+    report = build_drift_report(conn, repo_id)
+    text_out = render_text_report(report, verbose=args.verbose)
+    
+    print(text_out)
+    
+    if args.json_out:
+        json_path = os.path.abspath(args.json_out)
+        os.makedirs(os.path.dirname(json_path), exist_ok=True)
+        with open(json_path, "w", encoding="utf-8") as f:
+            f.write(render_json_report(report))
+        print(f"JSON report written to {json_path}")
+        
+    if args.text_out:
+        txt_path = os.path.abspath(args.text_out)
+        os.makedirs(os.path.dirname(txt_path), exist_ok=True)
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(text_out)
+        print(f"Text report written to {txt_path}")
+        
+    sys.exit(0)
+
 def main():
     parser = argparse.ArgumentParser(prog="parity")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -462,6 +519,13 @@ def main():
     verify_parser.add_argument("repo_path")
     verify_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
     
+    report_parser = subparsers.add_parser("report")
+    report_parser.add_argument("repo_path")
+    report_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    report_parser.add_argument("--verbose", action="store_true", help="Include verified claims in text output")
+    report_parser.add_argument("--json-out", dest="json_out", help="Path to write JSON report")
+    report_parser.add_argument("--text-out", dest="text_out", help="Path to write text report")
+    
     args = parser.parse_args()
     
     if args.command == "init":
@@ -478,6 +542,8 @@ def main():
         cmd_retrieve(args)
     elif args.command == "verify":
         cmd_verify(args)
+    elif args.command == "report":
+        cmd_report(args)
 
 if __name__ == "__main__":
     main()

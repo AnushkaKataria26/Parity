@@ -1,0 +1,8 @@
+================================================================================
+Parity Drift Report — Parity
+Generated: 2026-07-23T09:02:36.821006+00:00   Commit: 6f129a36
+================================================================================
+
+Summary: 0 claims checked — 0 contradicted, 0 unverifiable, 0 verified
+
+No drift detected — all claims verified, or no claims were checked.
