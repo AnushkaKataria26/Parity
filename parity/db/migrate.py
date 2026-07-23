@@ -13,8 +13,7 @@ def upsert_repo(conn: sqlite3.Connection, name: str, path: str, commit_sha: str 
         """INSERT INTO repos (name, path, last_ingested_commit_sha) 
            VALUES (?, ?, ?) 
            ON CONFLICT(path) DO UPDATE SET 
-           name=excluded.name, 
-           last_ingested_commit_sha=excluded.last_ingested_commit_sha""",
+           name=excluded.name""",
         (name, abs_path, commit_sha)
     )
     conn.commit()

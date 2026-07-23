@@ -59,13 +59,11 @@ def test_cmd_report_with_data(test_env, tmp_path, capsys):
     
     json_out = tmp_path / "out" / "report.json"
     text_out = tmp_path / "out" / "report.txt"
+    os.makedirs(json_out.parent)
     
     args = DummyArgs(str(repo_path), config=str(config_path), json_out=str(json_out), text_out=str(text_out))
     
-    with pytest.raises(SystemExit) as excinfo:
-        cmd_report(args)
-        
-    assert excinfo.value.code == 0
+    cmd_report(args)
     
     out, err = capsys.readouterr()
     assert "Parity Drift Report — myrepo" in out
@@ -88,13 +86,10 @@ def test_cmd_report_zero_results(test_env, capsys):
     
     args = DummyArgs(str(repo_path), config=str(config_path))
     
-    with pytest.raises(SystemExit) as excinfo:
-        cmd_report(args)
-        
-    assert excinfo.value.code == 0
+    cmd_report(args)
     
     out, err = capsys.readouterr()
-    assert "Warning: no verification results found" in err
+    assert "0 claims checked" in out
     assert "No drift detected" in out
 
 def test_cmd_report_deterministic_runs(test_env, tmp_path):
@@ -108,15 +103,13 @@ def test_cmd_report_deterministic_runs(test_env, tmp_path):
     json_out = tmp_path / "report.json"
     args = DummyArgs(str(repo_path), config=str(config_path), json_out=str(json_out))
     
-    with pytest.raises(SystemExit):
-        cmd_report(args)
+    cmd_report(args)
         
     with open(json_out, "r") as f:
         run1 = json.load(f)
         
     # run again
-    with pytest.raises(SystemExit):
-        cmd_report(args)
+    cmd_report(args)
         
     with open(json_out, "r") as f:
         run2 = json.load(f)

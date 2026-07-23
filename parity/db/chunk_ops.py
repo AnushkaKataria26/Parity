@@ -90,3 +90,92 @@ def store_doc_chunks(conn: sqlite3.Connection, repo_id: int, chunks: List[DocChu
             count += 1
             
     return count
+
+def delete_chunks_for_file(conn, repo_id: int, file_path: str, chunk_table: str, body_dir_name: str) -> None:
+    """
+    Deletes DB rows and JSON body artifacts for a specific file.
+    """
+    cursor = conn.execute(f"SELECT id FROM {chunk_table} WHERE repo_id = ? AND file_path = ?", (repo_id, file_path))
+    rows = cursor.fetchall()
+    
+    if not rows:
+        return
+        
+    chunk_ids = [r[0] if isinstance(r, tuple) else r['id'] for r in rows]
+    
+    # Delete DB rows
+    conn.execute(f"DELETE FROM {chunk_table} WHERE repo_id = ? AND file_path = ?", (repo_id, file_path))
+    
+    # Delete JSON files
+    base_dir = os.path.join("data", body_dir_name, str(repo_id))
+    for chunk_id in chunk_ids:
+        json_path = os.path.join(base_dir, f"{chunk_id}.json")
+        if os.path.exists(json_path):
+            os.remove(json_path)
+
+def store_chunks_for_file(conn, repo_id: int, file_path: str, chunks) -> int:
+    base_dir = os.path.join("data", "code_chunk_bodies", str(repo_id))
+    os.makedirs(base_dir, exist_ok=True)
+    
+    with conn:
+        delete_chunks_for_file(conn, repo_id, file_path, "code_chunks", "code_chunk_bodies")
+        
+        count = 0
+        for chunk in chunks:
+            cursor = conn.execute(
+                '''
+                INSERT INTO code_chunks (repo_id, file_path, symbol_name, symbol_type, start_line, end_line, ast_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (repo_id, chunk.file_path, chunk.symbol_name, chunk.symbol_type, 
+                 chunk.start_line, chunk.end_line, chunk.ast_hash)
+            )
+            chunk_id = cursor.lastrowid
+            
+            import json
+            json_path = os.path.join(base_dir, f"{chunk_id}.json")
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "source_text": chunk.source_text,
+                    "docstring": chunk.docstring
+                }, f, ensure_ascii=False, indent=2)
+            
+            count += 1
+            
+    return count
+
+def store_doc_chunks_for_file(conn, repo_id: int, file_path: str, chunks) -> int:
+    base_dir = os.path.join("data", "doc_chunk_bodies", str(repo_id))
+    os.makedirs(base_dir, exist_ok=True)
+    
+    with conn:
+        delete_chunks_for_file(conn, repo_id, file_path, "doc_chunks", "doc_chunk_bodies")
+        
+        count = 0
+        for chunk in chunks:
+            heading = chunk.heading_path
+            if len(heading) > 500:
+                print(f"Warning: truncating extremely long heading path ({len(heading)} chars) to 500 chars")
+                heading = heading[:497] + "..."
+                
+            cursor = conn.execute(
+                '''
+                INSERT INTO doc_chunks (repo_id, file_path, heading, text)
+                VALUES (?, ?, ?, ?)
+                ''',
+                (repo_id, chunk.file_path, heading, chunk.text)
+            )
+            chunk_id = cursor.lastrowid
+            
+            import json
+            json_path = os.path.join(base_dir, f"{chunk_id}.json")
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "code_blocks": chunk.code_blocks,
+                    "start_line": chunk.start_line,
+                    "end_line": chunk.end_line
+                }, f, ensure_ascii=False, indent=2)
+            
+            count += 1
+            
+    return count

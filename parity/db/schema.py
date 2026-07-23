@@ -50,5 +50,15 @@ SCHEMA_STATEMENTS = [
     match_status TEXT NOT NULL,
     top_k_json TEXT NOT NULL,
     retrieved_at TEXT NOT NULL
+);""",
+    """CREATE TABLE IF NOT EXISTS file_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_id INTEGER NOT NULL REFERENCES repos(id),
+    file_path TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    last_processed_commit_sha TEXT,
+    last_processed_at TEXT NOT NULL,
+    UNIQUE(repo_id, file_path, file_type)
 );"""
 ]

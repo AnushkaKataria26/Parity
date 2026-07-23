@@ -57,7 +57,7 @@ def cmd_embed(args):
     print(f"  Code chunks embedded:  {summary['code_chunks_embedded']}  ({summary['code_fallback_count']} used fallback text)")
     print(f"  Doc chunks embedded:   {summary['doc_chunks_embedded']}  ({summary['doc_fallback_count']} used fallback text)")
     print(f"  Model: BAAI/bge-small-en-v1.5")
-    sys.exit(0)
+    return summary
 
 def cmd_init(args):
     repo_path = os.path.abspath(args.repo_path)
@@ -79,11 +79,9 @@ def cmd_init(args):
     conn = get_connection(config["db_path"])
     apply_schema(conn)
     
-    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_path, capture_output=True, text=True)
-    if result.returncode == 0:
-        commit_sha = result.stdout.strip()
-    else:
-        commit_sha = None
+    from parity.versioning.git_diff import get_current_commit_sha
+    commit_sha = get_current_commit_sha(repo_path)
+    if not commit_sha:
         print("Warning: repo has no commits yet; last_ingested_commit_sha will be null", file=sys.stderr)
         
     repo_id = upsert_repo(conn, name=os.path.basename(repo_path), path=repo_path, commit_sha=commit_sha)
@@ -132,34 +130,87 @@ def cmd_chunk_code(args):
         
     repo_id = row[0]
     
-    python_files = discover_python_files(repo_path)
-    
-    all_chunks = []
-    files_scanned = 0
-    files_skipped = 0
-    
-    for file_path in python_files:
-        files_scanned += 1
-        chunks, is_skipped = extract_chunks_from_file(file_path, repo_path)
-        if is_skipped:
-            files_skipped += 1
-        all_chunks.extend(chunks)
+    if getattr(args, 'full', False):
+        python_files = discover_python_files(repo_path)
         
-    store_chunks(conn, repo_id, all_chunks)
-    
-    total_chunks = len(all_chunks)
-    functions = sum(1 for c in all_chunks if c.symbol_type in ("function", "async_function"))
-    methods = sum(1 for c in all_chunks if c.symbol_type in ("method", "async_method"))
-    classes = sum(1 for c in all_chunks if c.symbol_type == "class")
-    
-    print(f"Parity chunk-code summary for {repo_path}")
-    print(f"  Files scanned:     {files_scanned}")
-    print(f"  Files skipped:     {files_skipped} (syntax errors)")
-    print(f"  Chunks extracted:  {total_chunks}")
-    print(f"    functions:  {functions}")
-    print(f"    methods:    {methods}")
-    print(f"    classes:    {classes}")
-    print(f"  Chunk bodies written to: data/code_chunk_bodies/{repo_id}/")
+        all_chunks = []
+        files_scanned = 0
+        files_skipped = 0
+        
+        for file_path in python_files:
+            files_scanned += 1
+            chunks, is_skipped = extract_chunks_from_file(file_path, repo_path)
+            if is_skipped:
+                files_skipped += 1
+            all_chunks.extend(chunks)
+            
+        store_chunks(conn, repo_id, all_chunks)
+        
+        # In full mode, also populate cache so subsequent incremental runs have baselines
+        from parity.versioning.content_cache import compute_file_hash, update_cache_entry
+        from parity.versioning.git_diff import get_current_commit_sha
+        current_sha = get_current_commit_sha(repo_path)
+        for file_path in python_files:
+            rel_path = os.path.relpath(file_path, repo_path).replace(os.sep, '/')
+            try:
+                content_hash = compute_file_hash(file_path)
+                update_cache_entry(conn, repo_id, rel_path, "code", content_hash, current_sha)
+            except FileNotFoundError:
+                pass
+        if current_sha:
+            conn.execute("UPDATE repos SET last_ingested_commit_sha = ? WHERE id = ?", (current_sha, repo_id))
+            conn.commit()
+            
+        total_chunks = len(all_chunks)
+        functions = sum(1 for c in all_chunks if c.symbol_type in ("function", "async_function"))
+        methods = sum(1 for c in all_chunks if c.symbol_type in ("method", "async_method"))
+        classes = sum(1 for c in all_chunks if c.symbol_type == "class")
+        
+        print(f"Parity chunk-code summary for {repo_path} [mode: full]")
+        print(f"  Files scanned:     {files_scanned}")
+        print(f"  Files skipped:     {files_skipped} (syntax errors)")
+        print(f"  Chunks extracted:  {total_chunks}")
+        print(f"    functions:  {functions}")
+        print(f"    methods:    {methods}")
+        print(f"    classes:    {classes}")
+        print(f"  Chunk bodies written to: data/code_chunk_bodies/{repo_id}/")
+        return python_files
+    else:
+        from parity.versioning.incremental import run_incremental_chunking
+        from parity.db.chunk_ops import store_chunks_for_file, delete_chunks_for_file
+        
+        summary, changed_files = run_incremental_chunking(
+            conn, repo_id, repo_path, "code",
+            discover_python_files,
+            extract_chunks_from_file,
+            store_chunks_for_file,
+            lambda c, r, f: delete_chunks_for_file(c, r, f, "code_chunks", "code_chunk_bodies"),
+            store_chunks
+        )
+        
+        all_chunks = summary.get("all_chunks_obj", [])
+        
+        print(f"Parity chunk-code summary for {repo_path}  [mode: {'full' if summary['is_full_rescan'] else 'incremental'}]")
+        if not summary['is_full_rescan']:
+            print(f"  Changed files detected:   {summary['changed_detected']}")
+            print(f"  Skipped (hash unchanged): {summary['skipped']}")
+            print(f"  Reprocessed:              {summary['reprocessed']}")
+            print(f"  Deleted files handled:    {summary['deleted']}")
+            print(f"  Chunks now in DB:         {summary['total_chunks_now']}")
+        else:
+            total_chunks = len(all_chunks)
+            functions = sum(1 for c in all_chunks if getattr(c, 'symbol_type', '') in ("function", "async_function"))
+            methods = sum(1 for c in all_chunks if getattr(c, 'symbol_type', '') in ("method", "async_method"))
+            classes = sum(1 for c in all_chunks if getattr(c, 'symbol_type', '') == "class")
+            print(f"  Files scanned:     {summary['reprocessed']}")
+            print(f"  Files skipped:     {summary.get('skipped_syntax', 0)} (syntax errors)")
+            print(f"  Chunks extracted:  {total_chunks}")
+            print(f"    functions:  {functions}")
+            print(f"    methods:    {methods}")
+            print(f"    classes:    {classes}")
+            print(f"  Chunk bodies written to: data/code_chunk_bodies/{repo_id}/")
+            
+        return changed_files
 
 def cmd_chunk_docs(args):
     repo_path = os.path.abspath(args.repo_path)
@@ -183,35 +234,91 @@ def cmd_chunk_docs(args):
         
     repo_id = row[0]
     
-    doc_files = discover_doc_files(repo_path)
-    if not doc_files:
-        print(f"Warning: no documentation files found in '{repo_path}'", file=sys.stderr)
-    
-    all_chunks = []
-    
-    for file_path in doc_files:
+    def extract_fn(file_path, repo_path):
         if file_path.lower().endswith('.rst'):
-            chunks = extract_chunks_from_rst(file_path, repo_path)
+            return extract_chunks_from_rst(file_path, repo_path), False
         else:
-            chunks = extract_chunks_from_markdown(file_path, repo_path)
-        all_chunks.extend(chunks)
+            return extract_chunks_from_markdown(file_path, repo_path), False
+            
+    if getattr(args, 'full', False):
+        doc_files = discover_doc_files(repo_path)
+        if not doc_files:
+            print(f"Warning: no documentation files found in '{repo_path}'", file=sys.stderr)
         
-    store_doc_chunks(conn, repo_id, all_chunks)
-    
-    total_chunks = len(all_chunks)
-    with_headings = sum(1 for c in all_chunks if c.heading_level > 0)
-    preamble_only = sum(1 for c in all_chunks if c.heading_level == 0)
-    empty_sections = sum(1 for c in all_chunks if not c.text)
-    total_code_blocks = sum(len(c.code_blocks) for c in all_chunks)
-    
-    print(f"Parity chunk-docs summary for {repo_path}")
-    print(f"  Doc files scanned:   {len(doc_files)}")
-    print(f"  Chunks extracted:    {total_chunks}")
-    print(f"    with headings:  {with_headings}")
-    print(f"    preamble-only:  {preamble_only}")
-    print(f"    empty sections: {empty_sections}")
-    print(f"  Code blocks extracted: {total_code_blocks}")
-    print(f"  Chunk bodies written to: data/doc_chunk_bodies/{repo_id}/")
+        all_chunks = []
+        
+        for file_path in doc_files:
+            chunks, _ = extract_fn(file_path, repo_path)
+            all_chunks.extend(chunks)
+            
+        store_doc_chunks(conn, repo_id, all_chunks)
+        
+        from parity.versioning.content_cache import compute_file_hash, update_cache_entry
+        from parity.versioning.git_diff import get_current_commit_sha
+        current_sha = get_current_commit_sha(repo_path)
+        for file_path in doc_files:
+            rel_path = os.path.relpath(file_path, repo_path).replace(os.sep, '/')
+            try:
+                content_hash = compute_file_hash(file_path)
+                update_cache_entry(conn, repo_id, rel_path, "doc", content_hash, current_sha)
+            except FileNotFoundError:
+                pass
+        if current_sha:
+            conn.execute("UPDATE repos SET last_ingested_commit_sha = ? WHERE id = ?", (current_sha, repo_id))
+            conn.commit()
+            
+        total_chunks = len(all_chunks)
+        with_headings = sum(1 for c in all_chunks if c.heading_level > 0)
+        preamble_only = sum(1 for c in all_chunks if c.heading_level == 0)
+        empty_sections = sum(1 for c in all_chunks if not c.text)
+        total_code_blocks = sum(len(c.code_blocks) for c in all_chunks)
+        
+        print(f"Parity chunk-docs summary for {repo_path} [mode: full]")
+        print(f"  Doc files scanned:   {len(doc_files)}")
+        print(f"  Chunks extracted:    {total_chunks}")
+        print(f"    with headings:  {with_headings}")
+        print(f"    preamble-only:  {preamble_only}")
+        print(f"    empty sections: {empty_sections}")
+        print(f"  Code blocks extracted: {total_code_blocks}")
+        print(f"  Chunk bodies written to: data/doc_chunk_bodies/{repo_id}/")
+        return doc_files
+    else:
+        from parity.versioning.incremental import run_incremental_chunking
+        from parity.db.chunk_ops import store_doc_chunks_for_file, delete_chunks_for_file
+        
+        summary, changed_files = run_incremental_chunking(
+            conn, repo_id, repo_path, "doc",
+            discover_doc_files,
+            extract_fn,
+            store_doc_chunks_for_file,
+            lambda c, r, f: delete_chunks_for_file(c, r, f, "doc_chunks", "doc_chunk_bodies"),
+            store_doc_chunks
+        )
+        
+        all_chunks = summary.get("all_chunks_obj", [])
+        
+        print(f"Parity chunk-docs summary for {repo_path}  [mode: {'full' if summary['is_full_rescan'] else 'incremental'}]")
+        if not summary['is_full_rescan']:
+            print(f"  Changed files detected:   {summary['changed_detected']}")
+            print(f"  Skipped (hash unchanged): {summary['skipped']}")
+            print(f"  Reprocessed:              {summary['reprocessed']}")
+            print(f"  Deleted files handled:    {summary['deleted']}")
+            print(f"  Chunks now in DB:         {summary['total_chunks_now']}")
+        else:
+            total_chunks = len(all_chunks)
+            with_headings = sum(1 for c in all_chunks if getattr(c, 'heading_level', 0) > 0)
+            preamble_only = sum(1 for c in all_chunks if getattr(c, 'heading_level', -1) == 0)
+            empty_sections = sum(1 for c in all_chunks if not getattr(c, 'text', True))
+            total_code_blocks = sum(len(getattr(c, 'code_blocks', [])) for c in all_chunks)
+            print(f"  Doc files scanned:   {summary['reprocessed']}")
+            print(f"  Chunks extracted:    {total_chunks}")
+            print(f"    with headings:  {with_headings}")
+            print(f"    preamble-only:  {preamble_only}")
+            print(f"    empty sections: {empty_sections}")
+            print(f"  Code blocks extracted: {total_code_blocks}")
+            print(f"  Chunk bodies written to: data/doc_chunk_bodies/{repo_id}/")
+            
+        return changed_files
 
 def cmd_extract_claims(args):
     repo_path = os.path.abspath(args.repo_path)
@@ -308,7 +415,7 @@ def cmd_extract_claims(args):
     print(f"  Chunks with parse failures (after retry): {parse_failures}")
     print(f"  Chunks with LLM call errors:              {llm_errors}")
     
-    sys.exit(0)
+    return
 
 def cmd_retrieve(args):
     repo_path = os.path.abspath(args.repo_path)
@@ -363,7 +470,7 @@ def cmd_retrieve(args):
         print(f"  Ambiguous:    {summary['ambiguous']} ({ambiguous_pct:.1f}%)")
         print(f"  No match:     {summary['no_match']} ({no_match_pct:.1f}%)")
     
-    sys.exit(0)
+    return summary
 
 def cmd_verify(args):
     repo_path = os.path.abspath(args.repo_path)
@@ -426,7 +533,7 @@ def cmd_verify(args):
     print(f"  Unverifiable:        {summary['unverifiable']} ({unverifiable_pct:.1f}%)")
     print(f"  Resolution methods:  dynamic={summary['dynamic_resolutions']}  static={summary['static_resolutions']}  failed={summary['resolution_failures']}")
     
-    sys.exit(0)
+    return summary
 
 def cmd_report(args):
     repo_path = os.path.abspath(args.repo_path)
@@ -483,7 +590,7 @@ def cmd_report(args):
             f.write(text_out)
         print(f"Text report written to {txt_path}")
         
-    sys.exit(0)
+    return
 
 def main():
     parser = argparse.ArgumentParser(prog="parity")
@@ -526,6 +633,11 @@ def main():
     report_parser.add_argument("--json-out", dest="json_out", help="Path to write JSON report")
     report_parser.add_argument("--text-out", dest="text_out", help="Path to write text report")
     
+    run_all_parser = subparsers.add_parser("run-all")
+    run_all_parser.add_argument("repo_path")
+    run_all_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    run_all_parser.add_argument("--full", action="store_true", help="Force full rescan")
+    
     args = parser.parse_args()
     
     if args.command == "init":
@@ -544,6 +656,70 @@ def main():
         cmd_verify(args)
     elif args.command == "report":
         cmd_report(args)
+    elif args.command == "run-all":
+        import time
+        start_time = time.time()
+        
+        # We need to adapt cmd_embed to accept changed_file_paths directly instead of via args.
+        # It's cleaner if cmd_embed just takes changed_file_paths as an optional kwarg, but
+        # cmd_run_all will instead just replicate the embed_repo call, or we can monkeypatch args.
+        
+        # But wait, we can just call the functions directly.
+        
+        try:
+            print("=== INIT ===")
+            cmd_init(args)
+            
+            print("\n=== CHUNK CODE ===")
+            code_changed = cmd_chunk_code(args)
+            
+            print("\n=== CHUNK DOCS ===")
+            doc_changed = cmd_chunk_docs(args)
+            
+            print("\n=== EMBED ===")
+            if getattr(args, 'full', False):
+                changed_file_paths = None
+            else:
+                changed_file_paths = set(code_changed) | set(doc_changed)
+                
+            config = load_config(args.config if args.config else "config.yaml")
+            conn = get_connection(config["db_path"])
+            repo_id = conn.execute("SELECT id FROM repos WHERE path = ?", (os.path.abspath(args.repo_path),)).fetchone()[0]
+            client = get_chroma_client(config["chroma_persist_dir"])
+            code_col, doc_col = get_or_create_collections(client)
+            
+            summary = embed_repo(conn, repo_id, client, code_col, doc_col, changed_file_paths=changed_file_paths)
+            print(f"Parity embed summary for {args.repo_path}")
+            print(f"  Code chunks embedded:  {summary['code_chunks_embedded']}  ({summary['code_fallback_count']} used fallback text)")
+            print(f"  Doc chunks embedded:   {summary['doc_chunks_embedded']}  ({summary['doc_fallback_count']} used fallback text)")
+            print(f"  Model: BAAI/bge-small-en-v1.5")
+            
+            # For the rest of the pipeline, there is no incremental concept.
+            # They always run on the full DB.
+            print("\n=== EXTRACT CLAIMS ===")
+            args.limit = None
+            cmd_extract_claims(args)
+            
+            print("\n=== RETRIEVE ===")
+            args.top_k = None
+            cmd_retrieve(args)
+            
+            print("\n=== VERIFY ===")
+            cmd_verify(args)
+            
+            print("\n=== REPORT ===")
+            args.verbose = False
+            args.json_out = None
+            args.text_out = None
+            cmd_report(args)
+            
+            elapsed = time.time() - start_time
+            print(f"\nParity run-all completed in {elapsed:.1f}s [mode: {'full' if getattr(args, 'full', False) else 'incremental'}]")
+            
+        except SystemExit as e:
+            if e.code != 0:
+                print(f"Pipeline failed at step with exit code {e.code}", file=sys.stderr)
+                sys.exit(e.code)
 
 if __name__ == "__main__":
     main()

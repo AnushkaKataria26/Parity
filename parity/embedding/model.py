@@ -131,28 +131,47 @@ def build_doc_chunk_embedding_text(chunk_row: dict, body_json: dict) -> str:
     ]
     return "\\n".join(c for c in components if c).strip()
 
-def embed_repo(conn, repo_id: int, chroma_client, code_collection, doc_collection, model_name: str = "BAAI/bge-small-en-v1.5", batch_size: int = 32) -> dict:
+def embed_repo(conn, repo_id: int, chroma_client, code_collection, doc_collection, model_name: str = "BAAI/bge-small-en-v1.5", batch_size: int = 32, changed_file_paths: set[str] | None = None) -> dict:
     """
     Embeds all code and doc chunks for the given repo_id and populates Chroma and SQLite.
+    If changed_file_paths is provided, only chunks from those files are updated.
     """
     import sqlite3
     
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
+    if changed_file_paths is not None and len(changed_file_paths) == 0:
+        logging.info("embed_repo: changed_file_paths is empty, nothing changed. Skipping embed.")
+        return {
+            "code_chunks_embedded": 0,
+            "doc_chunks_embedded": 0,
+            "code_fallback_count": 0,
+            "doc_fallback_count": 0
+        }
+
+    
     # CODE CHUNKS
-    cursor.execute("SELECT * FROM code_chunks WHERE repo_id = ?", (repo_id,))
+    if changed_file_paths is None:
+        cursor.execute("SELECT * FROM code_chunks WHERE repo_id = ?", (repo_id,))
+    else:
+        placeholders = ','.join(['?'] * len(changed_file_paths))
+        cursor.execute(f"SELECT * FROM code_chunks WHERE repo_id = ? AND file_path IN ({placeholders})", (repo_id, *changed_file_paths))
+    
     code_rows = cursor.fetchall()
     
     code_embedded = 0
     code_fallback = 0
     
-    if not code_rows:
+    if not code_rows and changed_file_paths is None:
         logging.warning(f"Warning: no code chunks found for repo_id {repo_id} — did you run chunk-code first?")
-    else:
-        # Delete stale entries. chunk_code deletes-and-reinserts SQL rows on every run,
-        # changing chunk IDs. Clean up old entries keyed to nonexistent IDs.
-        code_collection.delete(where={"repo_id": repo_id})
+    elif code_rows:
+        # Delete stale entries
+        if changed_file_paths is None:
+            code_collection.delete(where={"repo_id": repo_id})
+        else:
+            code_collection.delete(where={"$and": [{"repo_id": repo_id}, {"file_path": {"$in": list(changed_file_paths)}}]})
+
         
         texts_to_embed = []
         for row in code_rows:
@@ -212,16 +231,24 @@ def embed_repo(conn, repo_id: int, chroma_client, code_collection, doc_collectio
         conn.commit()
 
     # DOC CHUNKS
-    cursor.execute("SELECT * FROM doc_chunks WHERE repo_id = ?", (repo_id,))
+    if changed_file_paths is None:
+        cursor.execute("SELECT * FROM doc_chunks WHERE repo_id = ?", (repo_id,))
+    else:
+        placeholders = ','.join(['?'] * len(changed_file_paths))
+        cursor.execute(f"SELECT * FROM doc_chunks WHERE repo_id = ? AND file_path IN ({placeholders})", (repo_id, *changed_file_paths))
+        
     doc_rows = cursor.fetchall()
     
     doc_embedded = 0
     doc_fallback = 0
     
-    if not doc_rows:
+    if not doc_rows and changed_file_paths is None:
         logging.warning(f"Warning: no doc chunks found for repo_id {repo_id} — did you run chunk-docs first?")
-    else:
-        doc_collection.delete(where={"repo_id": repo_id})
+    elif doc_rows:
+        if changed_file_paths is None:
+            doc_collection.delete(where={"repo_id": repo_id})
+        else:
+            doc_collection.delete(where={"$and": [{"repo_id": repo_id}, {"file_path": {"$in": list(changed_file_paths)}}]})
         
         texts_to_embed = []
         for row in doc_rows:

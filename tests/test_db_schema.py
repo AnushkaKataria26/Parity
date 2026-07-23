@@ -35,7 +35,7 @@ def test_upsert_repo(tmp_path):
     assert cursor.fetchone()["count"] == 1
     
     cursor = conn.execute("SELECT last_ingested_commit_sha FROM repos WHERE path = ?", (os.path.abspath(repo_path),))
-    assert cursor.fetchone()["last_ingested_commit_sha"] == "sha2"
+    assert cursor.fetchone()["last_ingested_commit_sha"] == "sha1"
 
 def test_upsert_repo_path_normalization(tmp_path):
     db_path = tmp_path / "test.db"
