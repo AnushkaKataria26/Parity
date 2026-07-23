@@ -38,18 +38,13 @@ class LLMCallError(Exception):
     """Custom exception for LLM call failures."""
     pass
 
-def extract_claims_raw(doc_chunk_text: str, heading_path: str, model_name: str, host: str, timeout: float = 60.0, retry_message: str = None) -> str:
+def call_ollama_json(prompt: str, model_name: str, host: str, timeout: float = 60.0) -> str:
     import ollama
-    
-    # Generate the prompt
-    from parity.extraction.prompts import build_extraction_prompt
-    prompt = build_extraction_prompt(doc_chunk_text, heading_path)
-    if retry_message:
-        prompt += f"\n\n{retry_message}"
-    
     try:
         client = ollama.Client(host=host)
         # We use temperature 0.0 for deterministic extraction since structured output is desired.
+        # Note: timeout parameter in ollama-python client is typically configured differently, 
+        # but the prompt specification asks to share the raw-call step.
         response = client.generate(
             model=model_name,
             prompt=prompt,
@@ -59,3 +54,12 @@ def extract_claims_raw(doc_chunk_text: str, heading_path: str, model_name: str, 
         return response.get("response", "")
     except Exception as e:
         raise LLMCallError(f"Failed to generate claims via Ollama: {str(e)}") from e
+
+def extract_claims_raw(doc_chunk_text: str, heading_path: str, model_name: str, host: str, timeout: float = 60.0, retry_message: str = None) -> str:
+    # Generate the prompt
+    from parity.extraction.prompts import build_extraction_prompt
+    prompt = build_extraction_prompt(doc_chunk_text, heading_path)
+    if retry_message:
+        prompt += f"\n\n{retry_message}"
+    
+    return call_ollama_json(prompt, model_name, host, timeout)

@@ -365,6 +365,69 @@ def cmd_retrieve(args):
     
     sys.exit(0)
 
+def cmd_verify(args):
+    repo_path = os.path.abspath(args.repo_path)
+    
+    if not os.path.exists(repo_path):
+        print(f"Error: repo path '{repo_path}' does not exist", file=sys.stderr)
+        sys.exit(1)
+        
+    if not os.path.isdir(repo_path):
+        print(f"Error: repo path '{repo_path}' is not a directory", file=sys.stderr)
+        sys.exit(1)
+        
+    config = load_config(args.config if args.config else "config.yaml")
+    
+    ollama_ok = check_ollama_reachable(config["ollama_host"])
+    if not ollama_ok:
+        print(f"Error: Ollama not reachable or model '{config['ollama_model']}' not available — run 'ollama pull {config['ollama_model']}' and ensure 'ollama serve' is running", file=sys.stderr)
+        sys.exit(1)
+        
+    model_ok = check_model_available(config["ollama_model"], config["ollama_host"])
+    if not model_ok:
+        print(f"Error: Ollama not reachable or model '{config['ollama_model']}' not available — run 'ollama pull {config['ollama_model']}' and ensure 'ollama serve' is running", file=sys.stderr)
+        sys.exit(1)
+        
+    conn = get_connection(config["db_path"])
+    
+    cursor = conn.execute("SELECT id FROM repos WHERE path = ?", (repo_path,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"Error: repo '{repo_path}' not initialized — run 'init' first", file=sys.stderr)
+        sys.exit(1)
+        
+    repo_id = row[0]
+    
+    cursor = conn.execute("""
+        SELECT COUNT(*) FROM retrieval_results r 
+        JOIN claims c ON r.claim_id = c.id 
+        JOIN doc_chunks d ON c.doc_chunk_id = d.id 
+        WHERE d.repo_id = ?
+    """, (repo_id,))
+    count = cursor.fetchone()[0]
+    
+    if count == 0:
+        print(f"Error: no retrieval results found — run 'retrieve' first", file=sys.stderr)
+        sys.exit(1)
+        
+    from parity.verification.verify import verify_repo
+    
+    summary = verify_repo(conn, repo_id, repo_path, config["ollama_model"], config["ollama_host"])
+    
+    total = summary["total"]
+    verified_pct = (summary["verified"] / total * 100) if total > 0 else 0.0
+    contradicted_pct = (summary["contradicted"] / total * 100) if total > 0 else 0.0
+    unverifiable_pct = (summary["unverifiable"] / total * 100) if total > 0 else 0.0
+    
+    print(f"Parity verify summary for {repo_path}")
+    print(f"  Claims processed:    {total}")
+    print(f"  Verified:            {summary['verified']} ({verified_pct:.1f}%)")
+    print(f"  Contradicted:        {summary['contradicted']} ({contradicted_pct:.1f}%)")
+    print(f"  Unverifiable:        {summary['unverifiable']} ({unverifiable_pct:.1f}%)")
+    print(f"  Resolution methods:  dynamic={summary['dynamic_resolutions']}  static={summary['static_resolutions']}  failed={summary['resolution_failures']}")
+    
+    sys.exit(0)
+
 def main():
     parser = argparse.ArgumentParser(prog="parity")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -395,6 +458,10 @@ def main():
     retrieve_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
     retrieve_parser.add_argument("--top-k", type=int, dest="top_k", help="Optional top-k for retrieval")
     
+    verify_parser = subparsers.add_parser("verify")
+    verify_parser.add_argument("repo_path")
+    verify_parser.add_argument("--config", dest="config", help="CONFIG_PATH")
+    
     args = parser.parse_args()
     
     if args.command == "init":
@@ -409,6 +476,8 @@ def main():
         cmd_extract_claims(args)
     elif args.command == "retrieve":
         cmd_retrieve(args)
+    elif args.command == "verify":
+        cmd_verify(args)
 
 if __name__ == "__main__":
     main()
