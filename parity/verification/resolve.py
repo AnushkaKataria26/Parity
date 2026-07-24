@@ -95,7 +95,7 @@ def resolve_symbol_dynamic(module_dotted_path: str, symbol_name: str, repo_root:
             "kind": str(p.kind),
             "has_default": has_default,
             "default_repr": default_repr,
-            "is_literal": True # Dynamic resolution evaluates the default, so it's literal/exact for our comparison
+            "is_literal": has_default # Dynamic resolution evaluates the default, so if it exists it's literal/exact for our comparison
         })
         
     # 5. Return annotation
@@ -111,21 +111,7 @@ def resolve_symbol_dynamic(module_dotted_path: str, symbol_name: str, repo_root:
     )
 
 
-def resolve_symbol_static(chunk_id: int, repo_id: int, symbol_name: str, symbol_type: str) -> Optional[ResolvedSymbol]:
-    """
-    Statically resolve a symbol via AST parsing of the saved chunk body.
-    """
-    body_path = f"data/code_chunk_bodies/{repo_id}/{chunk_id}.json"
-    if not os.path.exists(body_path):
-        return ResolvedSymbol(resolution_method="failed", parameters=None, return_annotation=None, source_available=False)
-        
-    try:
-        with open(body_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            source_text = data.get("text", "")
-    except Exception:
-        return ResolvedSymbol(resolution_method="failed", parameters=None, return_annotation=None, source_available=False)
-        
+def _resolve_symbol_static_from_source(source_text: str, symbol_type: str) -> Optional[ResolvedSymbol]:
     try:
         tree = ast.parse(source_text)
     except SyntaxError:
@@ -232,3 +218,21 @@ def resolve_symbol_static(chunk_id: int, repo_id: int, symbol_name: str, symbol_
         return_annotation=return_annotation,
         source_available=True
     )
+
+
+def resolve_symbol_static(chunk_id: int, repo_id: int, symbol_name: str, symbol_type: str) -> Optional[ResolvedSymbol]:
+    """
+    Statically resolve a symbol via AST parsing of the saved chunk body.
+    """
+    body_path = f"data/code_chunk_bodies/{repo_id}/{chunk_id}.json"
+    if not os.path.exists(body_path):
+        return ResolvedSymbol(resolution_method="failed", parameters=None, return_annotation=None, source_available=False)
+        
+    try:
+        with open(body_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            source_text = data.get("text", "")
+    except Exception:
+        return ResolvedSymbol(resolution_method="failed", parameters=None, return_annotation=None, source_available=False)
+        
+    return _resolve_symbol_static_from_source(source_text, symbol_type)

@@ -134,8 +134,11 @@ def extract_chunks_from_file(file_path: str, repo_root: str) -> Tuple[List[CodeC
             
             for child in getattr(node, 'body', []):
                 process_node(child, raw_symbol_name, is_class_context=isinstance(node, ast.ClassDef))
+        else:
+            # Traverse other nodes (like If, Try, Module, etc.) for nested defs
+            for child in ast.iter_child_nodes(node):
+                process_node(child, parent_prefix, is_class_context)
 
-    for node in getattr(tree, 'body', []):
-        process_node(node)
+    process_node(tree)
 
     return chunks, False
